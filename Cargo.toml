@@ -1,0 +1,13 @@
+[package]
+name = "word2vecserver"
+version = "0.1.0"
+authors = ["Martin Evans <martindevans@gmail.com>"]
+
+[dependencies]
+word2vec = "0.3.1"
+iron = "0.6.0"
+hyper = "0.10.15"
+router = "0.6.0"
+persistent = "0.4.0"
+clap = "2.32.0"
+flate2 = "1.0.6"
