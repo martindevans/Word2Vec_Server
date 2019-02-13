@@ -2,6 +2,8 @@ extern crate word2vec;
 extern crate flate2;
 extern crate hypernonsense;
 extern crate rand;
+extern crate serde;
+extern crate serde_json;
 
 extern crate iron;
 use iron::prelude::*;
@@ -78,7 +80,9 @@ fn get_similar_by_word(req: &mut Request) -> IronResult<Response> {
 
     let nearest = w2v.get_nearest(vector, query_count);
 
-    return Ok(Response::with((status::Ok, format!("{:?}", nearest))));
+    let json = serde_json::to_string(&nearest).unwrap();
+
+    return Ok(Response::with((status::Ok, json)));
 }
 
 //
@@ -101,6 +105,18 @@ fn main() {
                 .takes_value(true)
                 .required(true)
         ).arg(
+            Arg::with_name("indices")
+                .long("indices")
+                .takes_value(true)
+                .default_value("15")
+                .required(false)
+        ).arg(
+            Arg::with_name("planes")
+                .long("planes")
+                .takes_value(true)
+                .default_value("16")
+                .required(false)
+        ).arg(
             Arg::with_name("compressed")
                 .short("c")
                 .long("compressed")
@@ -116,16 +132,20 @@ fn main() {
         )
         .get_matches();
 
-    //Parse the port number
+    //Parse the arg values
     let port = matches.value_of("port").unwrap().parse::<u16>().expect("Failed to parse port number");
+    let indices = matches.value_of("indices").unwrap().parse::<u8>().expect("Failed to parse indices number");
+    let planes = matches.value_of("planes").unwrap().parse::<u8>().expect("Failed to parse plane number");
 
     //Load the word vectors
     println!("## Loading Word Vectors...");
     let limit = 250000;
-    let model = WordVectorDictionary::create_from_path_limit(
+    let model = WordVectorDictionary::create_from_path(
         matches.value_of("vectors").expect("Failed to get vectors from command line args"),
         matches.is_present("compressed"),
-        limit
+        limit,
+        indices,
+        planes
     );
     println!(" - Loaded {:?}!", model.word_count());
 

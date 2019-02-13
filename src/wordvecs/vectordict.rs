@@ -4,12 +4,17 @@ use std::fs::File;
 use std::collections::HashMap;
 
 use rand::prelude::*;
-
+use serde::{Deserialize, Serialize};
 use flate2::read::GzDecoder;
 
 use word2vec::vectorreader::WordVectorReader;
-
 use hypernonsense::multiindex::{ MultiIndex };
+
+#[derive(Serialize, Deserialize)]
+pub struct Distance {
+    distance: f32,
+    word: String
+}
 
 pub struct WordVectorDictionary {
     word_to_id: HashMap<String, usize>,
@@ -21,18 +26,18 @@ pub struct WordVectorDictionary {
 
 impl WordVectorDictionary {
 
-    pub fn create_from_path_limit(path: &str, is_compressed: bool, limit: usize) -> WordVectorDictionary {
+    pub fn create_from_path(path: &str, is_compressed: bool, limit: usize, indices: u8, planes: u8) -> WordVectorDictionary {
         let file = File::open(path).unwrap();
         let buf_reader = BufReader::new(file);
 
         if is_compressed {
-            return WordVectorDictionary::create_from_reader_limit(BufReader::new(GzDecoder::new(buf_reader)), limit);
+            return WordVectorDictionary::create_from_reader(BufReader::new(GzDecoder::new(buf_reader)), limit, indices, planes);
         } else {
-            return WordVectorDictionary::create_from_reader_limit(buf_reader, limit);
+            return WordVectorDictionary::create_from_reader(buf_reader, limit, indices, planes);
         }
     }
 
-    fn create_from_reader_limit<R : BufRead>(file_reader: R, limit: usize) -> WordVectorDictionary {
+    fn create_from_reader<R : BufRead>(file_reader: R, limit: usize, indices: u8, planes: u8) -> WordVectorDictionary {
 
         let vector_reader = WordVectorReader::new_from_reader(file_reader).unwrap();
         let vsize = vector_reader.vector_size();
@@ -50,16 +55,22 @@ impl WordVectorDictionary {
             word_to_id: HashMap::with_capacity(limit),
             vectors: Vec::with_capacity(limit),
             words: Vec::with_capacity(limit),
-            index: MultiIndex::new(vsize, 25, 20, &mut thread_rng()),
+            index: MultiIndex::new(vsize, indices, planes, &mut thread_rng()),
             dim: vsize
         };
 
+        let mut count:usize = 0;
         for (word, vector) in vector_reader.into_iter().take(limit).map(normalize) {
             let id = result.vectors.len();
             result.vectors.push(vector.clone());
             result.words.push(word.clone());
             result.word_to_id.insert(word, id);
             result.index.add(id, &vector);
+
+            count += 1;
+            if count % 1000 == 0 {
+                println!("Loaded {:?}/{:?}", count, limit);
+            }
         }
 
         return result;
@@ -79,7 +90,7 @@ impl WordVectorDictionary {
             .map(|id| &self.vectors[*id]);
     }
 
-    pub fn get_nearest(&self, vector: &Vec<f32>, count: usize) -> Vec<(f32, &String)> {
+    pub fn get_nearest(&self, vector: &Vec<f32>, count: usize) -> Vec<Distance> {
 
         pub fn cosine_distance(a: &[f32], b: &[f32]) -> f32 {
             assert!(a.len() == b.len());
@@ -95,7 +106,10 @@ impl WordVectorDictionary {
         return self.index.nearest(vector, count, |p, k| {
             return cosine_distance(p, &self.vectors[*k]);
         }).iter().map(|a| {
-            return (a.distance, &self.words[a.key]);
+            return Distance {
+                distance: a.distance,
+                word: self.words[a.key].clone()
+            };
         }).collect();
     }
 }
