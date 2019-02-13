@@ -1,6 +1,7 @@
 extern crate word2vec;
 extern crate flate2;
-extern crate kdtree;
+extern crate hypernonsense;
+extern crate rand;
 
 extern crate iron;
 use iron::prelude::*;
@@ -75,7 +76,7 @@ fn get_similar_by_word(req: &mut Request) -> IronResult<Response> {
     //Get count of results
     let query_count = std::cmp::min(router.find("query_count").unwrap_or("128").parse::<usize>().unwrap_or(128), 512);
 
-    let nearest = w2v.get_nearest(vector, query_count).unwrap();
+    let nearest = w2v.get_nearest(vector, query_count);
 
     return Ok(Response::with((status::Ok, format!("{:?}", nearest))));
 }

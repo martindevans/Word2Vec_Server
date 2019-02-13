@@ -1,16 +1,21 @@
 use std::io::BufRead;
 use std::io::BufReader;
 use std::fs::File;
+use std::collections::HashMap;
+
+use rand::prelude::*;
 
 use flate2::read::GzDecoder;
 
 use word2vec::vectorreader::WordVectorReader;
 
-use kdtree::KdTree;
+use hypernonsense::multiindex::{ MultiIndex };
 
 pub struct WordVectorDictionary {
-    map: std::collections::HashMap<String, Vec<f32>>,
-    tree: kdtree::KdTree<f32, String, Vec<f32>>,
+    word_to_id: HashMap<String, usize>,
+    words: Vec<String>,
+    vectors: Vec<Vec<f32>>,
+    index: MultiIndex<usize>,
     dim: usize
 }
 
@@ -42,14 +47,19 @@ impl WordVectorDictionary {
         }
 
         let mut result = WordVectorDictionary {
-            map: vector_reader.into_iter().take(limit).map(normalize).collect(),
-            dim: vsize,
-            tree: KdTree::new_with_capacity(1, 2)
+            word_to_id: HashMap::with_capacity(limit),
+            vectors: Vec::with_capacity(limit),
+            words: Vec::with_capacity(limit),
+            index: MultiIndex::new(vsize, 25, 20, &mut thread_rng()),
+            dim: vsize
         };
 
-        result.tree = KdTree::new_with_capacity(result.word_dimension(), result.word_count());
-        for (word, vector) in &result.map {
-            result.tree.add(vector.clone(), word.clone()).expect("Failed to add item to KD Tree");
+        for (word, vector) in vector_reader.into_iter().take(limit).map(normalize) {
+            let id = result.vectors.len();
+            result.vectors.push(vector.clone());
+            result.words.push(word.clone());
+            result.word_to_id.insert(word, id);
+            result.index.add(id, &vector);
         }
 
         return result;
@@ -60,14 +70,16 @@ impl WordVectorDictionary {
     }
 
     pub fn word_count(&self) -> usize {
-        return self.map.len();
+        return self.vectors.len();
     }
 
     pub fn get_vector(&self, key: &str) -> Option<&Vec<f32>> {
-        return self.map.get(key);
+        return self
+            .word_to_id.get(key)
+            .map(|id| &self.vectors[*id]);
     }
 
-    pub fn get_nearest(&self, vector: &Vec<f32>, count: usize) -> Result<Vec<(f32, &String)>, kdtree::ErrorKind> {
+    pub fn get_nearest(&self, vector: &Vec<f32>, count: usize) -> Vec<(f32, &String)> {
 
         pub fn cosine_distance(a: &[f32], b: &[f32]) -> f32 {
             assert!(a.len() == b.len());
@@ -77,9 +89,13 @@ impl WordVectorDictionary {
                 acc += a[index] * b[index];
             }
 
-            return 2f32 - (acc + 1f32);
+            return 2f32 - (acc + 1f32).max(0f32);
         }
 
-        return self.tree.nearest(&vector, count, &cosine_distance);
+        return self.index.nearest(vector, count, |p, k| {
+            return cosine_distance(p, &self.vectors[*k]);
+        }).iter().map(|a| {
+            return (a.distance, &self.words[a.key]);
+        }).collect();
     }
 }
